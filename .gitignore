@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Generated results
+results/*
+!results/.gitkeep
+
+# Local calibration data
+assets/calibration_images/*
+!assets/calibration_images/.gitkeep

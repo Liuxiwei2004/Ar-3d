@@ -34,6 +34,10 @@ def main():
         show_axis=True,
         show_cube=True,
         show_faces=True,
+        show_shadow=True,
+        shadow_alpha=0.30,
+        shadow_blur=21,
+        shadow_scale=1.5,
     )
 
     frame = np.full(

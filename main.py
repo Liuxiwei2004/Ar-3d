@@ -7,89 +7,20 @@ import cv2
 import numpy as np
 
 from src.renderer import ARRenderer
+from src.pose_estimator import PoseEstimator
 from src.pipeline import PoseSmoother
 from src.eval import AREvaluator
 
 
-class DemoPoseEstimator:
-    """
-    Temporary pose estimator for integration testing.
-
-    This class generates a stable simulated marker pose.
-    Replace it with the real PoseEstimator after
-    the camera calibration and pose estimation modules
-    are completed.
-    """
-
-    def estimate(self, frame):
-        height, width = frame.shape[:2]
-
-        # Simulated marker pose.
-        rvec = np.array([
-            [0.15],
-            [0.10],
-            [0.0]
-        ], dtype=np.float64)
-
-        tvec = np.array([
-            [0.0],
-            [0.0],
-            [0.5]
-        ], dtype=np.float64)
-
-        return True, rvec, tvec
-
-
-def load_camera_parameters(params_path):
-    """
-    Load camera matrix and distortion coefficients.
-    """
-    params_path = Path(params_path)
-
-    if not params_path.exists():
-        raise FileNotFoundError(
-            f"Camera parameters not found: {params_path}"
-        )
-
-    data = np.load(str(params_path))
-
-    if "camera_matrix" not in data or "dist_coeffs" not in data:
-        raise ValueError(
-            "camera_params.npz must contain "
-            "'camera_matrix' and 'dist_coeffs'."
-        )
-
-    return data["camera_matrix"], data["dist_coeffs"]
-
-
-def create_camera_matrix(width, height):
-    """
-    Create temporary camera parameters for demo testing.
-
-    These are NOT real calibrated camera parameters.
-    """
-    focal_length = float(max(width, height))
-
-    return np.array([
-        [focal_length, 0, width / 2.0],
-        [0, focal_length, height / 2.0],
-        [0, 0, 1]
-    ], dtype=np.float64)
-
-
 def open_video_source(source):
-    """
-    Open camera or video file.
-    """
+    """Open camera or video file."""
     if source.isdigit():
         capture = cv2.VideoCapture(int(source))
     else:
         capture = cv2.VideoCapture(source)
 
     if not capture.isOpened():
-        raise RuntimeError(
-            f"Cannot open video source: {source}"
-        )
+        raise RuntimeError(f"Cannot open video source: {source}")
 
     return capture
 
@@ -121,9 +52,17 @@ def main():
     )
 
     parser.add_argument(
-        "--use-calibration",
-        action="store_true",
-        help="Use real calibrated camera parameters."
+        "--marker-size",
+        type=float,
+        default=0.15,
+        help="Actual Marker side length in meters. Default: 0.15"
+    )
+
+    parser.add_argument(
+        "--target-id",
+        type=int,
+        default=0,
+        help="ArUco Marker ID to track. Default: 0"
     )
 
     parser.add_argument(
@@ -161,106 +100,112 @@ def main():
 
     args = parser.parse_args()
 
-    # 1. Open video source.
+    if args.marker_size <= 0:
+        parser.error("--marker-size must be greater than 0")
+
     capture = open_video_source(args.source)
 
-    ret, first_frame = capture.read()
-
-    if not ret:
-        capture.release()
-        raise RuntimeError("Cannot read the first frame.")
-
-    height, width = first_frame.shape[:2]
-
-    # 2. Load or create camera parameters.
-    if args.use_calibration:
-        camera_matrix, dist_coeffs = load_camera_parameters(
-            args.camera_params
-        )
-        print("Using calibrated camera parameters.")
-    else:
-        camera_matrix = create_camera_matrix(width, height)
-        dist_coeffs = np.zeros((5, 1), dtype=np.float64)
-        print("Using temporary camera parameters for demo.")
-
-    # 3. Initialize AR components.
-    renderer = ARRenderer(
-        camera_matrix=camera_matrix,
-        dist_coeffs=dist_coeffs
-    )
-
-    smoother = PoseSmoother(
-        alpha=args.alpha,
-        enabled=not args.no_smoothing
-    )
-
-    evaluator = AREvaluator()
-
-    # 4. Load OBJ model.
-    model = None
-
-    if not args.no_model:
-        model_path = Path(args.model)
-
-        if not model_path.exists():
-            capture.release()
-            raise FileNotFoundError(
-                f"OBJ model not found: {model_path}"
-            )
-
-        model = renderer.load_obj_model(str(model_path))
-
-        print(f"Loaded OBJ model: {model_path}")
-        print(f"Vertices: {model['vertex_count']}")
-        print(f"Faces: {model['face_count']}")
-
-    # 5. Initialize temporary pose estimator.
-    pose_estimator = DemoPoseEstimator()
-
-    # 6. Prepare output video.
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    fps = capture.get(cv2.CAP_PROP_FPS)
-
-    if not np.isfinite(fps) or fps <= 0:
-        fps = 30.0
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-
-    writer = cv2.VideoWriter(
-        str(output_path),
-        fourcc,
-        fps,
-        (width, height)
-    )
-
-    if not writer.isOpened():
-        capture.release()
-        raise RuntimeError("Cannot create output video.")
-
-    # 7. Process video frames.
-    frame = first_frame
-    frame_count = 0
-
-    print("\nStarting AR processing...")
-    print("Press Q or ESC to stop.")
+    writer = None
 
     try:
+        # 1. Read the first frame.
+        ret, first_frame = capture.read()
+
+        if not ret:
+            raise RuntimeError("Cannot read the first frame.")
+
+        height, width = first_frame.shape[:2]
+
+        # 2. Initialize the real ArUco pose estimator.
+        camera_params_path = Path(args.camera_params)
+
+        if not camera_params_path.exists():
+            raise FileNotFoundError(
+                f"Camera parameters not found: {camera_params_path}"
+            )
+
+        pose_estimator = PoseEstimator(
+            camera_params_path=str(camera_params_path),
+            marker_size=args.marker_size,
+            target_id=args.target_id
+        )
+
+        # Use exactly the same calibrated parameters for rendering.
+        renderer = ARRenderer(
+            camera_matrix=pose_estimator.camera_matrix,
+            dist_coeffs=pose_estimator.dist_coeffs
+        )
+
+        print("Using calibrated camera parameters.")
+        print(f"Marker size: {args.marker_size} m")
+        print(f"Target Marker ID: {args.target_id}")
+
+        # 3. Initialize pose smoothing and evaluation.
+        smoother = PoseSmoother(
+            alpha=args.alpha,
+            enabled=not args.no_smoothing
+        )
+
+        evaluator = AREvaluator()
+
+        # 4. Load OBJ model.
+        model = None
+
+        if not args.no_model:
+            model_path = Path(args.model)
+
+            if not model_path.exists():
+                raise FileNotFoundError(
+                    f"OBJ model not found: {model_path}"
+                )
+
+            model = renderer.load_obj_model(str(model_path))
+
+            print(f"Loaded OBJ model: {model_path}")
+            print(f"Vertices: {model['vertex_count']}")
+            print(f"Faces: {model['face_count']}")
+
+        # 5. Prepare output video.
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fps = capture.get(cv2.CAP_PROP_FPS)
+
+        if not np.isfinite(fps) or fps <= 0:
+            fps = 30.0
+
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+        writer = cv2.VideoWriter(
+            str(output_path),
+            fourcc,
+            fps,
+            (width, height)
+        )
+
+        if not writer.isOpened():
+            raise RuntimeError("Cannot create output video.")
+
+        # 6. Process video frames.
+        frame = first_frame
+
+        print("\nStarting AR processing...")
+        print("Press Q or ESC to stop.")
+
         while True:
             start_time = time.perf_counter()
 
-            # Pose estimation.
+            # Detect ArUco Marker and estimate its pose.
             success, rvec, tvec = pose_estimator.estimate(frame)
 
-            # Pose smoothing and tracking state management.
+            # Smooth pose and manage tracking state.
             success, rvec, tvec = smoother.update(
                 success,
                 rvec,
                 tvec
             )
 
-            # Rendering.
+            # Render virtual object when tracking succeeds.
             if success:
                 rendered_frame = renderer.render(
                     frame.copy(),
@@ -273,7 +218,7 @@ def main():
 
             processing_time = time.perf_counter() - start_time
 
-            # Evaluation.
+            # Record evaluation metrics.
             evaluator.record_frame(
                 success=success,
                 rvec=rvec,
@@ -281,15 +226,13 @@ def main():
                 processing_time=processing_time
             )
 
-            # Display frame information.
-            frame_count += 1
-
             current_fps = (
                 1.0 / processing_time
                 if processing_time > 0
                 else 0.0
             )
 
+            # Display tracking information.
             cv2.putText(
                 rendered_frame,
                 f"FPS: {current_fps:.2f}",
@@ -310,9 +253,8 @@ def main():
                 2
             )
 
-            # Save and display.
+            # Save and display the processed frame.
             writer.write(rendered_frame)
-
             cv2.imshow("Simple AR Demo", rendered_frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -330,26 +272,32 @@ def main():
 
     finally:
         capture.release()
-        writer.release()
+
+        if writer is not None:
+            writer.release()
+
         cv2.destroyAllWindows()
 
-    # 8. Export evaluation results.
+    # 7. Export evaluation results.
     csv_path = evaluator.export_csv(args.csv)
-
     metrics = evaluator.get_metrics()
 
     print("\n========== AR Evaluation Results ==========")
     print(f"Total frames: {metrics['total_frames']}")
     print(f"Successful frames: {metrics['successful_frames']}")
+
     print(
         f"Tracking success rate: "
         f"{metrics['tracking_success_rate'] * 100:.2f}%"
     )
+
     print(f"Average FPS: {metrics['average_fps']:.2f}")
+
     print(
         f"Average translation jitter: "
         f"{metrics['average_translation_jitter']:.6f}"
     )
+
     print(
         f"Average rotation jitter: "
         f"{metrics['average_rotation_jitter']:.6f}"

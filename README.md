@@ -1,193 +1,283 @@
-# ar-3d
+# Marker-Based Augmented Reality System
 
-# Augmented Reality Implementation (Marker-Based 3D Virtual Object Projection)
-
-**Course:** CS460 / EIE460 / SE460 — Computer Vision Final Project (Topic 2)[cite: 2, 4]  
-**Institution:** Macau University of Science and Technology (MUST)[cite: 4]
+**Course:** CS460 / EIE460 / SE460 – Computer Vision Final Project  
+**Institution:** Macau University of Science and Technology (MUST)  
+**Topic:** Topic 2 – Augmented Reality Implementation
 
 ## 1. Project Overview
 
-This repository implements a real-time, marker-based **Augmented Reality (AR)** system capable of projecting 3D virtual objects (wireframe/shaded cubes, 3D coordinate axes, and custom `.obj` meshes with ground shadows) onto real-world images and video streams[cite: 2, 5].
+This project implements a marker-based Augmented Reality (AR) system using OpenCV and Python. It detects ArUco markers in images or video streams, estimates their 6-DoF poses, and overlays virtual 3D objects onto the real-world scene.
 
-The pipeline consists of four core stages[cite: 5]:
-1. **Camera Calibration:** Estimating camera intrinsic matrix ($K$) and distortion coefficients ($D$) via planar chessboard calibration[cite: 2, 5].
-2. **Marker Detection & 6-DoF Pose Estimation:** Detecting ArUco markers (`DICT_4X4_50`) and solving the Perspective-n-Point (`solvePnP`) problem to obtain rotation (`rvec`) and translation (`tvec`) vectors from the Marker coordinate frame to the Camera coordinate frame[cite: 5].
-3. **Temporal Pose Stabilization:** Applying an Exponential Moving Average (EMA) filter across consecutive video frames to suppress high-frequency pose jitter[cite: 5].
-4. **3D-to-2D Projection & Rendering:** Projecting 3D model vertices onto 2D image coordinates (`cv2.projectPoints`) and rendering depth-sorted faces, wireframes, and shadows onto the target frames[cite: 2, 5].
+The system integrates camera calibration, marker detection, pose estimation, temporal smoothing, 3D model rendering, and quantitative performance evaluation.
 
----
+The current implementation supports:
+- Chessboard-based camera calibration.
+- ArUco marker detection using `DICT_4X4_50`.
+- 6-DoF pose estimation using OpenCV `solvePnP`.
+- Temporal pose stabilization using Exponential Moving Average (EMA).
+- 3D coordinate axes and cube rendering.
+- Custom OBJ model loading and rendering.
+- Semi-transparent mesh faces and ground shadows.
+- Video output and CSV-based performance evaluation.
 
-## 2. Repository Structure
+## 2. System Architecture
+
+The system follows this processing pipeline:
+
+1. **Camera Calibration:** Obtain camera intrinsic parameters and distortion coefficients using chessboard images.
+2. **Marker Detection:** Detect the target ArUco marker in each frame.
+3. **Pose Estimation:** Estimate the marker's rotation and translation relative to the camera.
+4. **Pose Smoothing:** Apply EMA filtering to reduce frame-to-frame pose variations.
+5. **3D Rendering:** Project virtual object vertices onto the image using `cv2.projectPoints()` and render the model.
+6. **Evaluation:** Record tracking success, processing time, FPS, and pose jitter.
+
+## 3. Repository Structure
 
 ```text
-AR-Implementation/
+Ar-3d/
 ├── assets/
-│   ├── calibration_images/    # Chessboard photos captured for camera calibration
-│   ├── camera_params.npz      # Exported camera intrinsics ('camera_matrix', 'dist_coeffs')
-│   ├── markers/               # Printable ArUco marker images (DICT_4X4_50)
-│   ├── models/                # 3D virtual object files (e.g., .obj meshes)
-│   ├── test_images/           # Sample real-world images containing ArUco markers
-│   └── test_video.mp4         # Sample test video for tracking & EMA stability evaluation
+│   ├── calibration_images/       # Chessboard calibration images
+│   ├── camera_params.npz         # Camera intrinsic and distortion parameters
+│   ├── markers/                  # ArUco marker images
+│   └── models/
+│       └── test_cube.obj         # Test 3D model
 │
 ├── src/
-│   ├── calibrate.py           # Chessboard corner extraction & camera calibration
-│   ├── pose_estimator.py      # ArUco detection & PnP 6-DoF pose estimation module
-│   ├── renderer.py            # 3D model loader, projection & rendering engine
-│   ├── pipeline.py            # End-to-end AR pipeline with EMA pose smoothing
-│   ├── eval.py                # Quantitative evaluation (FPS, tracking rate, jitter comparison)
-│   └── main.py                # Main entry point for image/video inference & experiments
+│   ├── calibrate.py              # Camera calibration
+│   ├── generate_marker.py        # ArUco marker generation
+│   ├── pose_estimator.py         # Marker detection and pose estimation
+│   ├── renderer.py               # 3D projection and rendering
+│   ├── pipeline.py               # EMA pose smoothing
+│   └── eval.py                   # Performance evaluation
 │
-├── results/
-│   ├── raw_output.mp4         # Rendered AR video without temporal filtering
-│   ├── ema_output.mp4         # Rendered AR video with EMA pose stabilization
-│   ├── comparison.png         # Side-by-side visual comparison (Raw vs. EMA)
-│   └── metrics.csv            # Logged performance metrics (FPS, detection rate, reprojection error)
+├── tests/
+│   ├── test_images/
+│   │   └── sample.jpg
+│   ├── test_video/
+│   │   └── sample.mp4
+│   ├── test_renderer.py
+│   ├── test_obj_loader.py
+│   ├── test_obj_render.py
+│   ├── test_pipeline.py
+│   └── test_eval.py
 │
-├── requirements.txt           # Python dependencies
-├── README.md                  # Project documentation
+├── results/                      # Generated output files
+├── main.py                       # Main AR application
+├── requirements.txt
+├── README.md
 └── .gitignore
-
 ```
 
----
+## 4. Environment Setup
 
-## 3. Requirements: Software
+### Requirements
 
-### Environment Setup
+- Python 3.8–3.11
+- OpenCV with contrib modules
+- NumPy
+- Matplotlib
+- Pandas
+- Trimesh
 
-* **Operating System:** Windows 10/11, Linux (Ubuntu 20.04+), or macOS
-* **Python Version:** Python 3.8 – 3.11
+The project was developed and tested using Python 3.11.4 on macOS.
 
 ### Installation
 
-1. Clone this repository:
-```bash
-git clone [https://github.com/](https://github.com/)<your-username>/AR-Implementation.git
-cd AR-Implementation
-
-```
-
-
-2. Create and activate a virtual environment (recommended):
-```bash
-conda create -n ar_cv python=3.10 -y
-conda activate ar_cv
-
-```
-
-
-3. Install required packages:
-```bash
-pip install -r requirements.txt
-
-```
-
-
-*(Core dependencies include `opencv-contrib-python>=4.8.0`, `numpy>=1.24.0`, `matplotlib>=3.7.0`, and `pandas>=2.0.0`.)*
-
----
-
-## 4. Pretrained Models & Calibrated Camera Parameters
-
-Instead of neural network weights, geometric AR relies on pre-calibrated camera parameters (`assets/camera_params.npz`) and standardized fiducial marker definitions:
-
-* **Pre-calibrated Camera Parameters (`assets/camera_params.npz`):**
-Generated by `src/calibrate.py` using multi-angle views of a planar chessboard. The `.npz` archive contains:
-
-
-* `camera_matrix`: $3 \times 3$ intrinsic matrix $K$ (`float64`)
-
-
-* `dist_coeffs`: $1 \times 5$ radial and tangential distortion coefficients $D$ (`float64`)
-
-
-* `mean_reproj_error`: Mean reprojection error in pixels
-
-
-* **Fiducial Marker Specification:**
-* **Dictionary:** `cv2.aruco.DICT_4X4_50`
-
-
-* **Coordinate Convention:** Right-handed 3D coordinate system centered at the marker center ($+X$ right, $+Y$ up/forward on marker plane, $+Z$ pointing outward normal to the marker surface). Corner ordering follows top-left, top-right, bottom-right, bottom-left.
-
-
-
-
-
-(Note: If you test with a different camera or smartphone, please re-run the calibration step in Section 5.1 before testing.)
-
----
-
-## 5. Preparation for Testing
-
-### 5.1 (Optional) Re-calibrating Your Own Camera
-
-If using a custom camera rather than the provided test assets:
-
-1. Print a planar chessboard pattern and capture multiple images from varied angles and distances into `assets/calibration_images/`.
-
-
-2. Run the calibration script to update `assets/camera_params.npz`:
-
+Clone the repository:
 
 ```bash
-python src/calibrate.py --image_dir assets/calibration_images --rows 6 --cols 9 --square_size 0.025 --output assets/camera_params.npz
-
+git clone https://github.com/Liuxiwei2004/Ar-3d.git
+cd Ar-3d
 ```
 
-
-
-### 5.2 Marker & Test Data Preparation
-
-1. Print an ArUco marker (`DICT_4X4_50`) from `assets/markers/` and measure its **exact physical side length in meters** (e.g., `0.05` for a $5\text{ cm} \times 5\text{ cm}$ marker).
-
-
-2. Place your test photos in `assets/test_images/` or video in `assets/test_video.mp4`.
-
-
-
----
-
-## 6. Running the Code (Testing & Evaluation)
-
-### 6.1 Single Image AR Projection
-
-Project a 3D virtual object onto a static image:
+Create and activate a virtual environment:
 
 ```bash
-python src/main.py --mode image --input assets/test_images/sample.jpg --marker_size 0.05 --object cube --output results/sample_ar.png
-
+python -m venv .venv
+source .venv/bin/activate
 ```
 
-### 6.2 Video AR Rendering with EMA Stabilization
-
-Run real-time AR projection on a video stream with Exponential Moving Average (EMA) pose smoothing enabled:
+Install dependencies:
 
 ```bash
-python src/main.py --mode video --input assets/test_video.mp4 --marker_size 0.05 --object cube --ema --alpha 0.35 --output results/ema_output.mp4
-
+python -m pip install -r requirements.txt
 ```
 
-*Supported `--object` options: `cube`, `axes`, or path to a custom `.obj` mesh (e.g., `assets/models/model.obj`).*
-
-### 6.3 Comparative Evaluation (Raw vs. EMA Filtering)
-
-Run the automated evaluation script to compare jitter stability, FPS, and tracking success rate between raw `solvePnP` poses and EMA-filtered poses, generating `results/comparison.png` and `results/metrics.csv`:
+For automated testing, install pytest:
 
 ```bash
-python src/eval.py --input assets/test_video.mp4 --marker_size 0.05 --alpha 0.35 --save_dir results/
-
+python -m pip install pytest
 ```
 
----
+## 5. Camera Calibration and Marker Configuration
 
-## 7. Team Members & Division of Work
+### Camera Calibration
 
-| Team Member | Student ID | Core Responsibilities |
-| --- | --- | --- |
-| **Huang Yufei** | `1230037111` | **Camera Calibration & 6-DoF Pose Estimation:** Implemented chessboard calibration (`calibrate.py`), ArUco detection & `solvePnP` solver (`pose_estimator.py`), and standardized the `get_pose(frame)` interface.|
-| **Liu Xiwei** | `1230003256` | **3D Projection Rendering, Stabilization & Integration:** Implemented 3D object/mesh projection and shadow rendering (`renderer.py`), EMA temporal filtering (`pipeline.py`), quantitative evaluation (`eval.py`), and end-to-end integration (`main.py`).|
+The system uses chessboard-based camera calibration to obtain:
 
+- `camera_matrix`: 3 × 3 camera intrinsic matrix.
+- `dist_coeffs`: Lens distortion coefficients.
+- `mean_reproj_error`: Mean reprojection error.
+
+The provided calibration images are stored in:
+
+```text
+assets/calibration_images/
 ```
 
+The resulting parameters are stored in:
+
+```text
+assets/camera_params.npz
 ```
+
+To recalibrate a different camera, provide a new set of chessboard images and run the calibration script:
+
+```bash
+python src/calibrate.py --help
+```
+
+Use the available command-line options to configure the calibration image directory, chessboard dimensions, square size, and output path.
+
+### ArUco Marker
+
+The project uses:
+
+- Dictionary: `DICT_4X4_50`
+- Target marker ID: `0`
+- Physical marker side length: `0.15 m`
+
+The marker coordinate system is centered at the marker, with +X pointing right, +Y pointing upward in the marker plane, and +Z pointing outward from the marker plane.
+
+**Important:** The physical marker size supplied to the program must match the actual printed marker size.
+
+## 6. Running the AR Application
+
+The main entry point is `main.py`.
+
+### Display available options
+
+```bash
+python main.py --help
+```
+
+### Run with a video file
+
+```bash
+python main.py \
+    --source tests/test_video/sample.mp4 \
+    --output results/ar_output.mp4 \
+    --csv results/ar_evaluation.csv
+```
+
+### Run with a camera
+
+```bash
+python main.py --source 0
+```
+
+### Run with a custom OBJ model
+
+```bash
+python main.py \
+    --source tests/test_video/sample.mp4 \
+    --model assets/models/test_cube.obj \
+    --output results/ar_output.mp4
+```
+
+### Disable pose smoothing
+
+```bash
+python main.py \
+    --source tests/test_video/sample.mp4 \
+    --no-smoothing
+```
+
+### Available options
+
+| Argument | Description |
+|---|---|
+| `--source` | Camera index or input video path |
+| `--model` | Path to an OBJ model |
+| `--camera-params` | Camera calibration parameter file |
+| `--marker-size` | Physical marker side length in meters |
+| `--target-id` | Target ArUco marker ID |
+| `--output` | Output video path |
+| `--csv` | Evaluation CSV output path |
+| `--alpha` | EMA smoothing coefficient |
+| `--no-smoothing` | Disable pose smoothing |
+| `--no-model` | Disable OBJ model rendering |
+
+Press `Q` or `ESC` to stop processing.
+
+## 7. Performance Evaluation
+
+The evaluation module records quantitative measurements during video processing.
+
+The current evaluation metrics include:
+
+- **Tracking Success Rate:** Percentage of frames in which the target marker is successfully detected.
+- **Average FPS:** Average processing frame rate.
+- **Translation Jitter:** Frame-to-frame variation in estimated translation.
+- **Rotation Jitter:** Frame-to-frame variation in estimated rotation.
+
+The evaluation results are exported to CSV files for further analysis.
+
+### Example Results
+
+A test was conducted using the provided 212-frame video.
+
+| Metric | Result |
+|---|---:|
+| Total Frames | 212 |
+| Successful Frames | 212 |
+| Tracking Success Rate | 100.00% |
+| Average FPS | 19.93 |
+| Average Translation Jitter | 0.004173 |
+| Average Rotation Jitter | 0.031904 |
+
+These results represent one test run under the development environment and are not intended as universal performance guarantees.
+
+## 8. Testing
+
+### Automated Tests
+
+Run the pytest-compatible tests:
+
+```bash
+python -m pytest tests/ -v
+```
+
+The current pytest suite covers:
+
+- Tracking success rate calculation.
+- FPS calculation.
+- Pose jitter calculation.
+- CSV export.
+- EMA smoothing.
+- Smoothing reset and tracking failure handling.
+
+### Additional Rendering Tests
+
+Three rendering-related tests are implemented as standalone Python scripts:
+
+```bash
+python tests/test_renderer.py
+python tests/test_obj_loader.py
+python tests/test_obj_render.py
+```
+
+These tests verify basic rendering, OBJ loading, model dimensions, and OBJ projection.
+
+## 9. Team Members and Division of Work
+
+| Team Member | Responsibilities |
+|---|---|
+| Huang Yufei | Camera calibration, ArUco marker detection, and 6-DoF pose estimation |
+| Liu Xiwei | 3D projection and rendering, OBJ model loading, EMA pose smoothing, quantitative evaluation, and system integration |
+
+## 10. References
+
+- OpenCV Documentation: https://docs.opencv.org/
+- OpenCV ArUco Module: https://docs.opencv.org/4.x/d5/dae/tutorial_aruco_detection.html
+- Trimesh Documentation: https://trimesh.org/

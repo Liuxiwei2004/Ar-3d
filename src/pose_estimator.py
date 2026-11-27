@@ -20,7 +20,7 @@ class PoseEstimator:
     def __init__(
         self,
         camera_params_path: str = "assets/camera_params.npz",
-        marker_size: float = 0.05,
+        marker_size: float = 0.15,
         aruco_dict_type: int = cv2.aruco.DICT_4X4_50,
         target_id: int = None
     ):
@@ -118,7 +118,7 @@ _DEFAULT_ESTIMATOR = None
 def get_pose(
     frame: np.ndarray,
     camera_params_path: str = "assets/camera_params.npz",
-    marker_size: float = 0.05
+    marker_size: float = 0.15
 ):
     """
     标准位姿估计接口。
@@ -140,9 +140,9 @@ def get_pose(
 # Member 1 本地自测入口：验证检测效果并绘制 3D 坐标轴
 # =====================================================================
 if __name__ == "__main__":
-    test_img_path = "assets/test_images/sample.jpg"
+    test_img_path = "tests/test_images/sample.jpg"
     params_path = "assets/camera_params.npz"
-    marker_len = 0.05  # 请修改为你实际打印的 Marker 边长（单位：米）
+    marker_len = 0.15  # 请修改为你实际打印的 Marker 边长（单位：米）
 
     if not os.path.exists(test_img_path):
         print(f"[Tip] Please put a test photo with ArUco tag in: {test_img_path}")
@@ -163,3 +163,22 @@ if __name__ == "__main__":
             cv2.imwrite("results/member1_pose_check.jpg", vis)
             print("[Success] Axis verification chart has been saved to: results/member1_pose_check.jpg")
             print("Check points: the red axis (X) should face right, the green axis (Y) should face up, and the blue axis (Z) should face out of the vertical paper!")
+
+    video_path = "tests/test_video/sample.mp4"
+    if os.path.exists(video_path):
+        cap = cv2.VideoCapture(video_path)
+        total_frames = 0
+        detected_frames = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            total_frames += 1
+            success, rvec, tvec = estimator.estimate(frame)
+            if success:
+                detected_frames += 1
+
+        cap.release()
+        rate = (detected_frames / total_frames * 100) if total_frames > 0 else 0.0
+        print(f"[Video testing] Total frames: {total_frames}, number of frames successfully detected: {detected_frames}, detection rate: {rate:.2f}%")

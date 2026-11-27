@@ -13,9 +13,9 @@ venv/
 .DS_Store
 
 # Generated results
-results/*
-!results/.gitkeep
+#results/*
+#!results/.gitkeep
 
 # Local calibration data
-assets/calibration_images/*
-!assets/calibration_images/.gitkeep
+#assets/calibration_images/*
+#!assets/calibration_images/.gitkeep
